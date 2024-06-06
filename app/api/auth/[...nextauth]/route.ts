@@ -13,6 +13,7 @@ const handler = NextAuth({
       },
     }),
   ],
+  secret : process.env.AUTH_SECRET,
   callbacks: {
     async jwt({ token, account }) {
       if (account) {
