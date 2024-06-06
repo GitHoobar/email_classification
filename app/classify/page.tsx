@@ -1,9 +1,10 @@
 'use client';
+
 import { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation'; // Importing useRouter from next/navigation
 import { Container, Button, Typography, Select, MenuItem, FormControl, InputLabel, Card, CardContent, CardActions, Grid } from '@mui/material';
-import axios from 'axios';
+import { fetchEmails, classifyEmails } from '@/utils/emailApi';
 
 interface Email {
   id: string;
@@ -12,7 +13,7 @@ interface Email {
   category: string;
 }
 
-const Classify = () => {
+const Classify: React.FC = () => {
   const { data: session, status } = useSession();
   const [numEmails, setNumEmails] = useState<number>(3);
   const [emails, setEmails] = useState<Email[]>([]);
@@ -22,7 +23,7 @@ const Classify = () => {
     if (status === 'unauthenticated') {
       handleUnauthenticated();
     } else if (session) {
-      fetchEmails();
+      fetchAndClassifyEmails();
     }
   }, [status, session, numEmails]);
 
@@ -30,96 +31,22 @@ const Classify = () => {
     router.push('/api/auth/signin');
   };
 
-  const fetchEmails = async () => {
-    if (!session?.accessToken) return;
-
-    const response = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages', {
-      headers: {
-        Authorization: `Bearer ${session.accessToken}`,
-      },
-    });
-    const data = await response.json();
-
-    const messages = await Promise.all(
-      data.messages.slice(0, numEmails).map(async (message: any) => {
-        const messageData = await fetch(
-          `https://www.googleapis.com/gmail/v1/users/me/messages/${message.id}`,
-          {
-            headers: {
-              Authorization: `Bearer ${session.accessToken}`,
-            },
-          }
-        ).then((res) => res.json());
-        return {
-          id: message.id,
-          sender: messageData.payload.headers.find((header: any) => header.name === 'From').value,
-          content: messageData.snippet,
-          category: 'Unclassified',
-        };
-      })
-    );
-
-    classifyEmails(messages);
-  };
-
-  const classifyEmails = async (emailsToClassify: Email[]) => {
-    if (!emailsToClassify.length) return;
-
-    const apiKey = localStorage.getItem('openai_api_key');
-    if (!apiKey) {
-      console.error('OpenAI API key not found');
-      return;
-    }
-
+  const fetchAndClassifyEmails = async () => {
     try {
-      const classifiedEmails = await Promise.all(emailsToClassify.map(async (email) => {
-        if (email.category === 'Unclassified') {
-          try {
-            const content = `Classes: ["Important", "Promotions", "Social", "Marketing", "Spam", "General"]
-            Text: ${email.content}
-            
-            Classify the text into one of the above classes.`;
-
-            const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-              model: 'gpt-3.5-turbo-0125',
-              temperature: 0.6,
-              messages: [
-                { role: 'user', content: content }
-              ]
-            }, {
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`,
-              },
-            });
-
-            const category = mapSubcategory(response.data.choices[0]?.message?.content) ?? 'General';
-            return { ...email, category };
-          } catch (error) {
-            console.error('Error classifying email:', error);
-            return { ...email, category: 'Rate Limit Exceeded' };
-          }
-        } else {
-          return email;
-        }
-      }));
-
-      setEmails(classifiedEmails);
+      const fetchedEmails = await fetchEmails(session, numEmails);
+      const apiKey = localStorage.getItem('openai_api_key');
+      if (apiKey) {
+        const classifiedEmails = await classifyEmails(fetchedEmails, apiKey);
+        setEmails(classifiedEmails);
+      } else {
+        console.error('OpenAI API key not found');
+      }
     } catch (error) {
-      console.error('Error classifying emails:', error);
+      console.error('Error fetching and classifying emails:', error);
     }
   };
 
-  const mapSubcategory = (text: string) => {
-    const regex = /Class: "(.+)"/;
-    const match = text.match(regex);
-    if (match && match[1]) {
-      return match[1];
-    }
-    return null; // If no match is found, return null
-  };
-  
-  const getCategoryColor = (category: string) => {
+  const getCategoryColor = (category: string): string => {
     switch (category) {
       case 'Important':
         return 'green';
@@ -187,27 +114,6 @@ const Classify = () => {
       </Grid>
     </Container>
   );
-};
-
-const getCategoryColor = (category: string) => {
-  switch (category) {
-    case 'Important':
-      return 'green';
-    case 'Promotions':
-      return 'blue';
-    case 'Social':
-      return 'purple';
-    case 'Marketing':
-      return 'orange';
-    case 'Spam':
-      return 'red';
-    case 'General':
-      return 'gray';
-    case 'Rate Limit Exceeded':
-      return 'gray';
-    default:
-      return 'black';
-  }
 };
 
 export default Classify;
