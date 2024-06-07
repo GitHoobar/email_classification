@@ -3,8 +3,8 @@ const cors = require('cors');
 const app = express();
 const emailRoutes = require('./routes/emailRoutes');
 
-app.use(cors()); // Allow cross-origin requests
-app.use(express.json()); // Parse JSON request bodies
+app.use(cors()); 
+app.use(express.json()); 
 
 app.use('/api/email', emailRoutes);
 
